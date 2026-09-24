@@ -1,17 +1,13 @@
 import { Composer } from "grammy";
+import type { Ctx } from "../bot.js";
+import { deleteProfile, getProfile, getSettings } from "../data.js";
+import { adminChatId, confirmKeyboard, inlineButton, inlineKeyboard } from "../toolkit/index.js";
+const composer = new Composer<Ctx>();
+function snapshot(p: Awaited<ReturnType<typeof getProfile>>): string { if (!p) return "У вас пока нет анкеты — создайте её, чтобы начать."; return `👤 ${p.displayName}, ${p.age}\n${p.gender ? `Пол: ${p.gender}\n` : ""}${p.city ? `Город: ${p.city}\n` : ""}${p.bio ? `О себе: ${p.bio}\n` : ""}Фото: ${p.photos.length} из 8`; }
 
-// SCAFFOLD — generated from the bot blueprint BEFORE the agent runs.
-// Keep a LIVE registration (.command / .callbackQuery / …) so this feature is
-// never an empty stub. Replace the reply body with real logic + copy; if you
-// change the user-facing text, update tests/specs to match EXACTLY.
-// Do NOT rewrite src/bot.ts — buildBot() already auto-loads this module.
-// Menu: wire this into /start via registerMainMenuItem({ label: "👤 Моя анкета", data: "profile:view" }) if the toolkit exposes it.
-
-const composer = new Composer();
-
-composer.callbackQuery("profile:view", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await ctx.reply("👤 Моя анкета — you're in the right place. What would you like to do next?");
-});
-
+composer.callbackQuery("profile:view", async (ctx) => { await ctx.answerCallbackQuery(); const p = await getProfile(ctx); await ctx.reply(snapshot(p), { reply_markup: p ? inlineKeyboard([[inlineButton("✏️ Изменить имя", "profile:edit:name"), inlineButton("✏️ Изменить возраст", "profile:edit:age")], [inlineButton("✏️ Изменить город", "profile:edit:city"), inlineButton("✏️ Изменить о себе", "profile:edit:bio")], [inlineButton("🗑 Удалить анкету", "profile:delete")], [inlineButton("⬅️ В меню", "menu:main")]]) : inlineKeyboard([[inlineButton("👤 Создать анкету", "profile:create:start")]] ) }); });
+composer.callbackQuery(/^profile:edit:(name|age|city|bio)$/, async (ctx) => { await ctx.answerCallbackQuery(); const field = ctx.callbackQuery.data.slice("profile:edit:".length); ctx.session.step = `edit_${field}` as "edit_name"; const prompts: Record<string, string> = { name: "Как вас представить?", age: "Сколько вам лет?", city: "В каком городе вы живёте?", bio: "Что рассказать о себе?" }; await ctx.reply(prompts[field], { reply_markup: { force_reply: true, input_field_placeholder: prompts[field] } }); });
+composer.callbackQuery("profile:delete", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("Удалить анкету и все её фото? Это действие нельзя отменить.", { reply_markup: confirmKeyboard("profile:delete:confirm", { yes: "✅ Да, удалить", no: "⬅️ Оставить" }) }); });
+composer.callbackQuery("profile:delete:confirm:yes", async (ctx) => { await ctx.answerCallbackQuery(); const profile = await getProfile(ctx); const settings = await getSettings(ctx); await deleteProfile(ctx); const admin = adminChatId(ctx as Ctx & { env?: Record<string, unknown> }); if (profile && admin && settings.notifications) { try { await ctx.api.sendMessage(admin, `Пользователь удалил анкету: ${profile.displayName}`); } catch { /* The user-facing deletion must still complete. */ } } ctx.session.step = "idle"; await ctx.reply("Анкета удалена. Если захотите, её можно создать снова.", { reply_markup: inlineKeyboard([[inlineButton("👤 Создать анкету", "profile:create:start")], [inlineButton("⬅️ В меню", "menu:main")]]) }); });
+composer.callbackQuery("profile:delete:confirm:no", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("Хорошо, анкета остаётся с вами.", { reply_markup: inlineKeyboard([[inlineButton("👤 Моя анкета", "profile:view")]]) }); });
 export default composer;

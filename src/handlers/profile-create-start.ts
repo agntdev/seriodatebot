@@ -1,17 +1,26 @@
 import { Composer } from "grammy";
+import type { Ctx } from "../bot.js";
+import { createdAt, currentUserId, getProfile, makeId, saveProfile, saveSettings, type Profile } from "../data.js";
+import { inlineButton, inlineKeyboard } from "../toolkit/index.js";
+const composer = new Composer<Ctx>();
+const force = (placeholder: string) => ({ force_reply: true as const, input_field_placeholder: placeholder });
 
-// SCAFFOLD — generated from the bot blueprint BEFORE the agent runs.
-// Keep a LIVE registration (.command / .callbackQuery / …) so this feature is
-// never an empty stub. Replace the reply body with real logic + copy; if you
-// change the user-facing text, update tests/specs to match EXACTLY.
-// Do NOT rewrite src/bot.ts — buildBot() already auto-loads this module.
-// Menu: wire this into /start via registerMainMenuItem({ label: "👤 Создать анкету", data: "profile:create:start" }) if the toolkit exposes it.
+composer.callbackQuery("profile:create:start", async (ctx) => { await ctx.answerCallbackQuery(); if (await getProfile(ctx)) { await ctx.reply("У вас уже есть анкета — её можно открыть и изменить.", { reply_markup: inlineKeyboard([[inlineButton("👤 Моя анкета", "profile:view")]]) }); return; } ctx.session.step = "name"; ctx.session.draft = { photos: [] }; await ctx.reply("Начнём с имени. Как вас лучше представить?", { reply_markup: force("Ваше имя") }); });
 
-const composer = new Composer();
-
-composer.callbackQuery("profile:create:start", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await ctx.reply("Запустить пошаговую регистрацию профиля (required fields + фото)");
+composer.on("message:text", async (ctx, next) => {
+  const step = ctx.session.step; const text = ctx.message.text.trim();
+  if (!step || !["name", "age", "city", "bio", "edit_name", "edit_age", "edit_city", "edit_bio", "complaint"].includes(step)) return next();
+  if (step === "name") { if (text.length < 2 || text.length > 80) { await ctx.reply("Имя должно быть от 2 до 80 символов. Попробуйте ещё раз.", { reply_markup: force("Ваше имя") }); return; } ctx.session.draft = { ...(ctx.session.draft ?? {}), displayName: text, photos: ctx.session.draft?.photos ?? [] }; ctx.session.step = "age"; await ctx.reply("Сколько вам лет? Нужен возраст 18 лет или старше.", { reply_markup: force("Ваш возраст") }); return; }
+  if (step === "age") { const age = Number(text); if (!Number.isInteger(age) || age < 18 || age > 120) { await ctx.reply("Укажите целое число от 18 до 120 лет.", { reply_markup: force("Ваш возраст") }); return; } ctx.session.draft = { ...(ctx.session.draft ?? {}), age }; ctx.session.step = "gender"; await ctx.reply("Какой вариант вам ближе?", { reply_markup: inlineKeyboard([[inlineButton("Женщина", "profile:gender:female"), inlineButton("Мужчина", "profile:gender:male")], [inlineButton("Пропустить", "profile:gender:skip")]]) }); return; }
+  if (step === "city" || step === "bio") { const key = step === "city" ? "city" : "bio"; ctx.session.draft = { ...(ctx.session.draft ?? {}), [key]: text || undefined }; if (step === "city") { ctx.session.step = "bio"; await ctx.reply("Расскажите о себе в двух словах или нажмите «Пропустить».", { reply_markup: force("О себе") }); } else { ctx.session.step = "photos"; await ctx.reply("Теперь можно добавить до 8 фото. Пришлите фото или нажмите «Готово».", { reply_markup: inlineKeyboard([[inlineButton("Готово", "profile:finish")], [inlineButton("Пропустить", "profile:finish")]]) }); } return; }
+  if (step.startsWith("edit_")) { const profile = await getProfile(ctx); if (!profile) { ctx.session.step = "idle"; await ctx.reply("Анкета не найдена. Создайте её заново через меню."); return; } const field = step.slice(5) as "name" | "age" | "city" | "bio"; if (field === "age") { const age = Number(text); if (!Number.isInteger(age) || age < 18 || age > 120) { await ctx.reply("Укажите целое число от 18 до 120 лет.", { reply_markup: force("Ваш возраст") }); return; } profile.age = age; } else if (field === "name") profile.displayName = text; else profile[field === "city" ? "city" : "bio"] = text; profile.updatedAt = createdAt(); await saveProfile(ctx, profile); ctx.session.step = "idle"; await ctx.reply("Готово, анкета обновлена.", { reply_markup: inlineKeyboard([[inlineButton("👤 Моя анкета", "profile:view")]]) }); return; }
 });
 
+composer.callbackQuery(/^profile:gender:(female|male|skip)$/, async (ctx) => { await ctx.answerCallbackQuery(); const gender = ctx.callbackQuery.data.endsWith("female") ? "Женщина" : ctx.callbackQuery.data.endsWith("male") ? "Мужчина" : undefined; ctx.session.draft = { ...(ctx.session.draft ?? {}), gender }; ctx.session.step = "city"; await ctx.reply("В каком городе вы живёте? Можно пропустить.", { reply_markup: inlineKeyboard([[inlineButton("Пропустить", "profile:city:skip")]]) }); });
+composer.callbackQuery("profile:city:skip", async (ctx) => { await ctx.answerCallbackQuery(); ctx.session.step = "bio"; await ctx.reply("Расскажите о себе в двух словах или нажмите «Пропустить».", { reply_markup: inlineKeyboard([[inlineButton("Пропустить", "profile:bio:skip")]]) }); });
+composer.callbackQuery("profile:bio:skip", async (ctx) => { await ctx.answerCallbackQuery(); ctx.session.step = "photos"; await ctx.reply("Теперь можно добавить до 8 фото. Пришлите фото или нажмите «Готово».", { reply_markup: inlineKeyboard([[inlineButton("Готово", "profile:finish")], [inlineButton("Пропустить", "profile:finish")]]) }); });
+
+composer.on("message:photo", async (ctx, next) => { if (ctx.session.step !== "photos") return next(); const photos = ctx.session.draft?.photos ?? []; if (photos.length >= 8) { await ctx.reply("Можно добавить не больше 8 фото. Нажмите «Готово»."); return; } photos.push(ctx.message.photo[ctx.message.photo.length - 1].file_id); ctx.session.draft = { ...(ctx.session.draft ?? {}), photos }; await ctx.reply(`Фото добавлено (${photos.length}/8). Можно прислать ещё или нажать «Готово».`, { reply_markup: inlineKeyboard([[inlineButton("Готово", "profile:finish")]]) }); });
+
+composer.callbackQuery("profile:finish", async (ctx) => { await ctx.answerCallbackQuery(); const draft = ctx.session.draft; if (!draft?.displayName || !draft.age) { ctx.session.step = "idle"; await ctx.reply("Регистрация не завершена. Откройте меню и попробуйте ещё раз."); return; } if (await getProfile(ctx)) { ctx.session.step = "idle"; await ctx.reply("У вас уже есть анкета — повторная регистрация не нужна.", { reply_markup: inlineKeyboard([[inlineButton("👤 Моя анкета", "profile:view")]]) }); return; } const time = createdAt(); const profile: Profile = { id: makeId("profile"), telegramId: currentUserId(ctx), displayName: draft.displayName, age: draft.age, gender: draft.gender, city: draft.city, bio: draft.bio, photos: draft.photos ?? [], createdAt: time, updatedAt: time }; await saveProfile(ctx, profile); await saveSettings(ctx, { language: "ru", notifications: true, privacy: "visible" }); ctx.session.step = "idle"; ctx.session.draft = undefined; await ctx.reply("Анкета создана! Пусть она станет первым шагом к тёплому знакомству.", { reply_markup: inlineKeyboard([[inlineButton("👤 Моя анкета", "profile:view")], [inlineButton("⬅️ В меню", "menu:main")]]) }); });
 export default composer;

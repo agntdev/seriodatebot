@@ -5,9 +5,9 @@
       {
         "expect": [
           {
-            "method": "sendMessage",
+            "method": "editMessageText",
             "payload": {
-              "text": "🔎 Знакомства — you're in the right place. What would you like to do next?"
+              "text": "Сначала создайте анкету — так вы сможете перейти к знакомствам."
             }
           }
         ],

@@ -1,17 +1,9 @@
 import { Composer } from "grammy";
-
-// SCAFFOLD — generated from the bot blueprint BEFORE the agent runs.
-// Keep a LIVE registration (.command / .callbackQuery / …) so this feature is
-// never an empty stub. Replace the reply body with real logic + copy; if you
-// change the user-facing text, update tests/specs to match EXACTLY.
-// Do NOT rewrite src/bot.ts — buildBot() already auto-loads this module.
-// Menu: wire this into /start via registerMainMenuItem({ label: "⚙️ Настройки", data: "settings:open" }) if the toolkit exposes it.
-
-const composer = new Composer();
-
-composer.callbackQuery("settings:open", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await ctx.reply("⚙️ Настройки — you're in the right place. What would you like to do next?");
-});
-
+import type { Ctx } from "../bot.js";
+import { getSettings, saveSettings } from "../data.js";
+import { inlineButton, inlineKeyboard } from "../toolkit/index.js";
+const composer = new Composer<Ctx>();
+composer.callbackQuery("settings:open", async (ctx) => { await ctx.answerCallbackQuery(); const s = await getSettings(ctx); await ctx.editMessageText(`Настройки\nЯзык: русский\nУведомления: ${s.notifications ? "включены" : "выключены"}`, { reply_markup: inlineKeyboard([[inlineButton("Русский", "settings:language:ru")], [inlineButton(s.notifications ? "🔕 Выключить уведомления" : "🔔 Включить уведомления", "settings:notifications:toggle")], [inlineButton("⬅️ В меню", "menu:main")]]) }); });
+composer.callbackQuery("settings:language:ru", async (ctx) => { await ctx.answerCallbackQuery(); const s = await getSettings(ctx); await saveSettings(ctx, { ...s, language: "ru" }); await ctx.reply("Язык сохранён: русский.", { reply_markup: inlineKeyboard([[inlineButton("⬅️ В настройки", "settings:open")]]) }); });
+composer.callbackQuery("settings:notifications:toggle", async (ctx) => { await ctx.answerCallbackQuery(); const s = await getSettings(ctx); await saveSettings(ctx, { ...s, notifications: !s.notifications }); await ctx.reply(`Уведомления ${!s.notifications ? "включены" : "выключены"}.`, { reply_markup: inlineKeyboard([[inlineButton("⬅️ В настройки", "settings:open")]]) }); });
 export default composer;

@@ -1,17 +1,11 @@
 import { Composer } from "grammy";
-
-// SCAFFOLD — generated from the bot blueprint BEFORE the agent runs.
-// Keep a LIVE registration (.command / .callbackQuery / …) so this feature is
-// never an empty stub. Replace the reply body with real logic + copy; if you
-// change the user-facing text, update tests/specs to match EXACTLY.
-// Do NOT rewrite src/bot.ts — buildBot() already auto-loads this module.
-// Menu: wire this into /start via registerMainMenuItem({ label: "🆘 Помощь", data: "help:open" }) if the toolkit exposes it.
-
-const composer = new Composer();
-
-composer.callbackQuery("help:open", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await ctx.reply("🆘 Помощь — you're in the right place. What would you like to do next?");
-});
-
+import type { Ctx } from "../bot.js";
+import { adminChatId } from "../toolkit/index.js";
+import { createdAt, currentUserId, getProfile, makeId, saveComplaint, type Complaint } from "../data.js";
+import { inlineButton, inlineKeyboard } from "../toolkit/index.js";
+const composer = new Composer<Ctx>();
+const force = { force_reply: true as const, input_field_placeholder: "Что случилось?" };
+composer.callbackQuery("help:open", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.editMessageText("Нужна помощь? Опишите проблему, и мы постараемся разобраться.", { reply_markup: inlineKeyboard([[inlineButton("🆘 Сообщить о проблеме", "help:report")], [inlineButton("⬅️ В меню", "menu:main")]]) }); });
+composer.callbackQuery("help:report", async (ctx) => { await ctx.answerCallbackQuery(); ctx.session.step = "complaint"; await ctx.reply("Расскажите, что случилось. Можно коротко.", { reply_markup: force }); });
+composer.on("message:text", async (ctx, next) => { if (ctx.session.step !== "complaint") return next(); const reason = ctx.message.text.trim(); if (!reason) { await ctx.reply("Сообщение пока пустое. Напишите, пожалуйста, что случилось.", { reply_markup: force }); return; } const p = await getProfile(ctx); const complaint: Complaint = { id: makeId("complaint"), telegramId: currentUserId(ctx), displayName: p?.displayName ?? ctx.from?.first_name ?? "Пользователь", profileId: p?.id, reason, createdAt: createdAt() }; await saveComplaint(ctx, complaint); const admin = adminChatId(ctx as Ctx & { env?: Record<string, unknown> }); if (admin) { try { await ctx.api.sendMessage(admin, `Новая жалоба\nПользователь: ${complaint.displayName}\nTelegram ID: ${complaint.telegramId}\nПричина: ${reason}`); complaint.notifiedAdminAt = createdAt(); } catch { /* Telegram delivery is best effort; complaint remains stored. */ } } ctx.session.step = "idle"; await ctx.reply(admin ? "Спасибо, сообщение принято. Мы обязательно его посмотрим." : "Спасибо, сообщение сохранено. Владелец ещё не подключил уведомления, но обращение не потеряется.", { reply_markup: inlineKeyboard([[inlineButton("⬅️ В меню", "menu:main")]]) }); });
 export default composer;
