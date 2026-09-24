@@ -6,7 +6,29 @@ import type { StorageAdapter } from "grammy";
 // bot grows. Durable domain data must NOT live here — use the toolkit's
 // persistent storage (see AGENTS.md).
 export interface Session {
-  // example: step?: "awaiting_amount";
+  step?:
+    | "idle"
+    | "name"
+    | "age"
+    | "gender"
+    | "city"
+    | "bio"
+    | "photos"
+    | "complaint"
+    | "edit_name"
+    | "edit_age"
+    | "edit_city"
+    | "edit_bio";
+  draft?: {
+    displayName?: string;
+    age?: number;
+    gender?: string;
+    city?: string;
+    bio?: string;
+    photos?: string[];
+  };
+  /** Only used by the tokenless harness, which has no application DB binding. */
+  testData?: import("./data.js").DomainData;
 }
 
 export type Ctx = BotContext<Session>;

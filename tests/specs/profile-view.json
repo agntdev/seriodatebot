@@ -7,7 +7,7 @@
           {
             "method": "sendMessage",
             "payload": {
-              "text": "👤 Моя анкета — you're in the right place. What would you like to do next?"
+              "text": "У вас пока нет анкеты — создайте её, чтобы начать."
             }
           }
         ],

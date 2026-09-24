@@ -1,17 +1,7 @@
 import { Composer } from "grammy";
-
-// SCAFFOLD — generated from the bot blueprint BEFORE the agent runs.
-// Keep a LIVE registration (.command / .callbackQuery / …) so this feature is
-// never an empty stub. Replace the reply body with real logic + copy; if you
-// change the user-facing text, update tests/specs to match EXACTLY.
-// Do NOT rewrite src/bot.ts — buildBot() already auto-loads this module.
-// Menu: wire this into /start via registerMainMenuItem({ label: "🔎 Знакомства", data: "discover:disabled" }) if the toolkit exposes it.
-
-const composer = new Composer();
-
-composer.callbackQuery("discover:disabled", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  await ctx.reply("🔎 Знакомства — you're in the right place. What would you like to do next?");
-});
-
+import type { Ctx } from "../bot.js";
+import { getProfile } from "../data.js";
+import { inlineButton, inlineKeyboard } from "../toolkit/index.js";
+const composer = new Composer<Ctx>();
+composer.callbackQuery("discover:disabled", async (ctx) => { await ctx.answerCallbackQuery(); const profile = await getProfile(ctx); await ctx.editMessageText(profile ? "Знакомства скоро появятся. Ваша анкета уже сохранена — мы сообщим, когда всё будет готово." : "Сначала создайте анкету — так вы сможете перейти к знакомствам.", { reply_markup: inlineKeyboard([[inlineButton(profile ? "⬅️ В меню" : "👤 Создать анкету", profile ? "menu:main" : "profile:create:start")]]) }); });
 export default composer;
